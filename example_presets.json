@@ -1,0 +1,48 @@
+{
+    "presets": [
+        {
+            "name": "Home_Quiet",
+            "speeds": [
+                20,
+                20,
+                20,
+                20,
+                20,
+                20
+            ]
+        },
+        {
+            "name": "Home_Medium",
+            "speeds": [
+                40,
+                40,
+                40,
+                40,
+                40,
+                40
+            ]
+        },
+        {
+            "name": "Home_High",
+            "speeds": [
+                65,
+                65,
+                65,
+                65,
+                65,
+                65
+            ]
+        }
+    ],
+    "failsafe": {
+        "enabled": true,
+        "threshold_c": 80,
+        "fan_speed": 70,
+        "interval_seconds": 30
+    },
+    "startup": {
+        "enabled": true,
+        "preset_name": "Home_Quiet",
+        "delay_seconds": 60
+    }
+}

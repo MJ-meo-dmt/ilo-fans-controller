@@ -107,13 +107,16 @@ Create a new subdirectory in your web server root directory, usually `/var/www/h
 
 ```sh
 sudo mkdir -p /var/www/html/ilo-fans-controller
-sudo cp config.inc.php ilo-fans-controller-v2_index.php presets.json ilo_page_link_direct.png ilo_page_link_ssh.png /var/www/html/ilo-fans-controller/
+sudo cp config.inc.php ilo-fans-controller-v2_index.php example_presets.json ilo_page_link_direct.png ilo_page_link_ssh.png /var/www/html/ilo-fans-controller/
 ```
 
 Rename the extended PHP file to `index.php`:
+Rename the example presets.json file to `presets.json`:
 
 ```sh
 sudo mv /var/www/html/ilo-fans-controller/ilo-fans-controller-v2_index.php /var/www/html/ilo-fans-controller/index.php
+
+sudo mv /var/www/html/ilo-fans-controller/example_presets.json /var/www/html/ilo-fans-controller/presets.json
 ```
 
 Now open:

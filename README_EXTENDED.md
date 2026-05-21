@@ -59,6 +59,8 @@
 - Optional direct iLO link and SSH tunnel iLO link
 - Structured `presets.json` file
 - Thermal failsafe settings
+- Thermal failsafe recovery margin setting
+- Automatic restore of the last applied preset after failsafe clears
 - Startup preset settings
 - CLI commands for automation
 - Optional `systemd` services:
@@ -99,7 +101,7 @@ Tunnel link is useful if iLO is reachable only through SSH local port forwarding
 $ILO_DIRECT_URL = "https://$ILO_HOST";
 $ILO_TUNNEL_URL = "https://localhost:8443/";
 $SHOW_ILO_TUNNEL_LINK = true;
-````
+```
 
 ## 2. Install files
 
@@ -189,15 +191,29 @@ Example:
   "failsafe": {
     "enabled": true,
     "threshold_c": 80,
+    "recovery_margin_c": 10,
     "fan_speed": 70,
-    "interval_seconds": 15
+    "interval_seconds": 30
   },
   "startup": {
     "enabled": true,
     "preset_name": "Home_Quiet",
     "delay_seconds": 60
+  },
+  "runtime": {
+    "last_preset_name": "Home_Quiet",
+    "failsafe_active": false
   }
 }
+```
+
+The `recovery_margin_c` value controls when failsafe mode clears. *`very basic`*
+
+Example: `80°C - 10°C = 70°C [at 70°C reset to previous preset]`
+
+```json
+"threshold_c": 80
+"recovery_margin_c": 10
 ```
 
 Single-speed presets like:
@@ -286,6 +302,7 @@ Returns:
 {
   "enabled": true,
   "threshold_c": 80,
+  "recovery_margin_c": 10,
   "fan_speed": 70,
   "interval_seconds": 15
 }
@@ -305,7 +322,7 @@ Example:
 curl http://<server-ip>/ilo-fans-controller/index.php?api=failsafe-check
 ```
 
-This checks temperatures immediately. If a valid sensor is at or above the configured threshold, all fans are forced to the configured failsafe fan speed.
+This checks temperatures immediately. If a valid sensor is at or above the configured threshold, all fans are forced to the configured failsafe fan speed. Once temperatures fall below the recovery threshold, the last applied preset is restored automatically.
 
 ---
 
@@ -380,6 +397,7 @@ Normal result:
   "settings": {
     "enabled": true,
     "threshold_c": 80,
+    "recovery_margin_c": 10,
     "fan_speed": 70,
     "interval_seconds": 15
   },
@@ -397,6 +415,7 @@ Triggered result:
   "settings": {
     "enabled": true,
     "threshold_c": 80,
+    "recovery_margin_c": 10,
     "fan_speed": 70,
     "interval_seconds": 15
   },

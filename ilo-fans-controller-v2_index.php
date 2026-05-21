@@ -29,6 +29,7 @@ function default_failsafe_settings() {
 	return [
 		'enabled' => true,
 		'threshold_c' => 80,
+		'recovery_margin_c' => 5,
 		'fan_speed' => 70,
 		'interval_seconds' => 15,
 	];
@@ -43,11 +44,19 @@ function default_startup_settings() {
 	];
 }
 
+function default_runtime_state() {
+	return [
+		'last_preset_name' => 'Home_Quiet',
+		'failsafe_active' => false,
+	];
+}
+
 function default_app_data() {
 	return [
 		'presets' => default_presets(),
 		'failsafe' => default_failsafe_settings(),
 		'startup' => default_startup_settings(),
+		'runtime' => default_runtime_state(),
 	];
 }
 
@@ -70,6 +79,7 @@ function get_app_data() {
 			'presets' => $decoded,
 			'failsafe' => $defaults['failsafe'],
 			'startup' => $defaults['startup'],
+			'runtime' => $defaults['runtime'],
 		];
 	}
 
@@ -77,6 +87,7 @@ function get_app_data() {
 		'presets' => $decoded['presets'] ?? $defaults['presets'],
 		'failsafe' => array_merge($defaults['failsafe'], $decoded['failsafe'] ?? []),
 		'startup' => array_merge($defaults['startup'], $decoded['startup'] ?? []),
+		'runtime' => array_merge($defaults['runtime'], $decoded['runtime'] ?? []),
 	];
 }
 
@@ -89,6 +100,50 @@ function save_app_data($data) {
 function get_presets() {
 	$data = get_app_data();
 	return $data['presets'];
+}
+
+function detect_preset_name_from_fans($fans) {
+	$presets = get_presets();
+	$speeds = array_values($fans);
+
+	foreach ($presets as $preset) {
+		$preset_name = $preset['name'] ?? null;
+		$preset_speeds = $preset['speeds'] ?? [];
+
+		if (!$preset_name || empty($preset_speeds))
+			continue;
+
+		if (count($preset_speeds) === 1) {
+			if (count($speeds) > 0 && count(array_filter($speeds, fn($speed) => intval($speed) !== intval($preset_speeds[0]))) === 0)
+				return $preset_name;
+		} else {
+			if (array_map('intval', $speeds) === array_map('intval', $preset_speeds))
+				return $preset_name;
+		}
+	}
+
+	return null;
+}
+
+function get_runtime_state() {
+	$data = get_app_data();
+	$defaults = default_runtime_state();
+
+	return array_merge($defaults, $data['runtime'] ?? []);
+}
+
+function save_runtime_state($runtime) {
+	$data = get_app_data();
+
+	$data['runtime'] = array_merge(
+		default_runtime_state(),
+		$data['runtime'] ?? [],
+		$runtime
+	);
+
+	save_app_data($data);
+
+	return $data['runtime'];
 }
 
 function get_startup_settings() {
@@ -140,6 +195,7 @@ function get_failsafe_settings() {
 
 	$settings['enabled'] = filter_var($settings['enabled'], FILTER_VALIDATE_BOOLEAN);
 	$settings['threshold_c'] = intval($settings['threshold_c']);
+	$settings['recovery_margin_c'] = intval($settings['recovery_margin_c']);
 	$settings['fan_speed'] = intval($settings['fan_speed']);
 	$settings['interval_seconds'] = intval($settings['interval_seconds']);
 
@@ -148,6 +204,12 @@ function get_failsafe_settings() {
 
 	if ($settings['threshold_c'] > 120)
 		$settings['threshold_c'] = 120;
+
+	if ($settings['recovery_margin_c'] < 1)
+		$settings['recovery_margin_c'] = 1;
+
+	if ($settings['recovery_margin_c'] > 30)
+		$settings['recovery_margin_c'] = 30;
 
 	if ($settings['fan_speed'] < 50)
 		$settings['fan_speed'] = 50;
@@ -177,6 +239,10 @@ function save_failsafe_settings($settings) {
 		'threshold_c' => isset($settings['threshold_c'])
 			? intval($settings['threshold_c'])
 			: $current['threshold_c'],
+
+		'recovery_margin_c' => isset($settings['recovery_margin_c'])
+			? intval($settings['recovery_margin_c'])
+			: $current['recovery_margin_c'],
 
 		'fan_speed' => isset($settings['fan_speed'])
 			? intval($settings['fan_speed'])
@@ -265,45 +331,89 @@ function get_temperatures() {
         return $thermal['temperatures'];
 }
 
-function set_all_fans_percent($speed_percent) {
-	global $ILO_HOST, $ILO_USERNAME, $ILO_PASSWORD, $MINIMUM_FAN_SPEED;
+function apply_preset_array($preset) {
+	$preset_name = $preset['name'] ?? 'Unnamed preset';
+	$speeds = $preset['speeds'] ?? [];
 
-	$speed_percent = intval($speed_percent);
+	if (empty($speeds))
+		return [
+			'ok' => false,
+			'message' => "Preset '$preset_name' has no speeds.",
+		];
 
-	if ($speed_percent < $MINIMUM_FAN_SPEED)
-		$speed_percent = $MINIMUM_FAN_SPEED;
+	// If preset has one speed, apply it to all fans.
+	if (count($speeds) === 1) {
+		$FANS = get_fans();
 
-	if ($speed_percent > 100)
-		$speed_percent = 100;
+		if (empty($FANS))
+			return [
+				'ok' => false,
+				'message' => 'No fans found.',
+			];
+
+		$speeds = array_fill(0, count($FANS), intval($speeds[0]));
+	}
 
 	$FANS = get_fans();
 
 	if (empty($FANS))
-		return false;
+		return [
+			'ok' => false,
+			'message' => 'No fans found.',
+		];
 
-	$pwm_value = ceil($speed_percent / 100 * 255);
-
-	$ssh_handle = ssh2_connect($ILO_HOST, 22);
+	$ssh_handle = ssh2_connect($GLOBALS['ILO_HOST'], 22);
 
 	if (!$ssh_handle)
-		return false;
+		return [
+			'ok' => false,
+			'message' => 'SSH connection to iLO failed.',
+		];
 
-	if (!ssh2_auth_password($ssh_handle, $ILO_USERNAME, $ILO_PASSWORD))
-		return false;
+	if (!ssh2_auth_password($ssh_handle, $GLOBALS['ILO_USERNAME'], $GLOBALS['ILO_PASSWORD']))
+		return [
+			'ok' => false,
+			'message' => 'SSH authentication to iLO failed.',
+		];
 
-	foreach (array_keys($FANS) as $fan) {
-		$fan_index = array_search($fan, array_keys($FANS));
+	$fan_names = array_keys($FANS);
+	$updated = 0;
 
-		$stream = ssh2_exec($ssh_handle, "fan p $fan_index max $pwm_value");
+	foreach ($speeds as $i => $speed) {
+		if (!isset($fan_names[$i]))
+			continue;
+
+		$speed = intval($speed);
+
+		if ($speed < $GLOBALS['MINIMUM_FAN_SPEED'])
+			$speed = $GLOBALS['MINIMUM_FAN_SPEED'];
+
+		if ($speed > 100)
+			$speed = 100;
+
+		$pwm_value = ceil($speed / 100 * 255);
+
+		$stream = ssh2_exec($ssh_handle, "fan p $i max $pwm_value");
 		stream_set_blocking($stream, true);
 		stream_get_contents($stream);
+		fclose($stream);
 
-		$stream = ssh2_exec($ssh_handle, "fan p $fan_index min 255");
+		$stream = ssh2_exec($ssh_handle, "fan p $i min 255");
 		stream_set_blocking($stream, true);
 		stream_get_contents($stream);
+		fclose($stream);
+
+		$updated++;
+		usleep(200000);
 	}
 
-	return true;
+	return [
+		'ok' => $updated > 0,
+		'preset' => $preset_name,
+		'updated' => $updated,
+		'total_fans' => count($fan_names),
+		'message' => "Preset '$preset_name' applied to $updated fan(s).",
+	];
 }
 
 function apply_preset_by_name($preset_name) {
@@ -311,87 +421,16 @@ function apply_preset_by_name($preset_name) {
 
 	foreach ($presets as $preset) {
 		if (($preset['name'] ?? '') === $preset_name) {
-			$speeds = $preset['speeds'] ?? [];
+			$result = apply_preset_array($preset);
 
-			if (empty($speeds))
-				return [
-					'ok' => false,
-					'message' => "Preset '$preset_name' has no speeds.",
-				];
-
-			// If preset has one speed, apply it to all fans.
-			if (count($speeds) === 1) {
-				$result = set_all_fans_percent(intval($speeds[0]));
-
-				return [
-					'ok' => $result,
-					'preset' => $preset_name,
-					'mode' => 'single-speed',
-					'speed' => intval($speeds[0]),
-					'message' => $result
-						? "Startup preset '$preset_name' applied."
-						: "Failed to apply startup preset '$preset_name'.",
-				];
+			if (count($preset['speeds'] ?? []) === 1) {
+				$result['mode'] = 'single-speed';
+				$result['speed'] = intval($preset['speeds'][0]);
+			} else {
+				$result['mode'] = 'multi-speed';
 			}
 
-			// Multi-speed preset support.
-			$FANS = get_fans();
-
-			if (empty($FANS))
-				return [
-					'ok' => false,
-					'message' => 'No fans found.',
-				];
-
-			$ssh_handle = ssh2_connect($GLOBALS['ILO_HOST'], 22);
-
-			if (!$ssh_handle)
-				return [
-					'ok' => false,
-					'message' => 'SSH connection to iLO failed.',
-				];
-
-			if (!ssh2_auth_password($ssh_handle, $GLOBALS['ILO_USERNAME'], $GLOBALS['ILO_PASSWORD']))
-				return [
-					'ok' => false,
-					'message' => 'SSH authentication to iLO failed.',
-				];
-
-			$fan_names = array_keys($FANS);
-			$updated = 0;
-
-			foreach ($speeds as $i => $speed) {
-				if (!isset($fan_names[$i]))
-					continue;
-
-				$speed = intval($speed);
-
-				if ($speed < $GLOBALS['MINIMUM_FAN_SPEED'])
-					$speed = $GLOBALS['MINIMUM_FAN_SPEED'];
-
-				if ($speed > 100)
-					$speed = 100;
-
-				$pwm_value = ceil($speed / 100 * 255);
-
-				$stream = ssh2_exec($ssh_handle, "fan p $i max $pwm_value");
-				stream_set_blocking($stream, true);
-				stream_get_contents($stream);
-
-				$stream = ssh2_exec($ssh_handle, "fan p $i min 255");
-				stream_set_blocking($stream, true);
-				stream_get_contents($stream);
-
-				$updated++;
-			}
-
-			return [
-				'ok' => true,
-				'preset' => $preset_name,
-				'mode' => 'multi-speed',
-				'updated' => $updated,
-				'message' => "Startup preset '$preset_name' applied to $updated fan(s).",
-			];
+			return $result;
 		}
 	}
 
@@ -419,11 +458,20 @@ function apply_startup_preset() {
 	$result = apply_preset_by_name($settings['preset_name']);
 	$result['settings'] = $settings;
 
+	if (($result['ok'] ?? false) === true) {
+		save_runtime_state([
+			'last_preset_name' => $settings['preset_name'],
+		]);
+	}
+
 	return $result;
 }
 
 function thermal_failsafe_check() {
 	$settings = get_failsafe_settings();
+
+	$runtime = get_runtime_state();
+	$clear_threshold = max(0, $settings['threshold_c'] - $settings['recovery_margin_c']);
 
 	if (!$settings['enabled']) {
 		return [
@@ -455,15 +503,72 @@ function thermal_failsafe_check() {
 	}
 
 	if (!empty($hot_sensors)) {
-		$fan_result = set_all_fans_percent($settings['fan_speed']);
+		$FANS = get_fans();
+
+		$failsafe_preset = [
+			'name' => '__FAILSAFE__',
+			'speeds' => array_fill(0, count($FANS), $settings['fan_speed']),
+		];
+
+		$fan_result = apply_preset_array($failsafe_preset);
+
+		save_runtime_state([
+			'failsafe_active' => true,
+		]);
 
 		return [
 			'triggered' => true,
 			'enabled' => true,
 			'settings' => $settings,
-			'fan_update_ok' => $fan_result,
+			'fan_update_ok' => $fan_result['ok'] ?? false,
+			'fan_update_result' => $fan_result,
 			'hot_sensors' => $hot_sensors,
 			'message' => 'Thermal failsafe triggered. Fans forced to emergency speed.',
+		];
+	}
+
+	if (($runtime['failsafe_active'] ?? false) === true) {
+		$max_temp = 0;
+
+		foreach ($temperatures as $temp) {
+			$value = intval($temp['value'] ?? 0);
+			$status = $temp['status'] ?? 'Unknown';
+
+			if ($status !== 'Unknown' && $value > $max_temp)
+				$max_temp = $value;
+		}
+
+		if ($max_temp <= $clear_threshold) {
+			$restore_preset = $runtime['last_preset_name'] ?? null;
+			$restore_result = null;
+
+			if ($restore_preset) {
+				$restore_result = apply_preset_by_name($restore_preset);
+			}
+
+			save_runtime_state([
+				'failsafe_active' => false,
+			]);
+
+			return [
+				'triggered' => false,
+				'enabled' => true,
+				'restored' => true,
+				'restore_preset' => $restore_preset,
+				'restore_result' => $restore_result,
+				'settings' => $settings,
+				'hot_sensors' => [],
+				'message' => "Temperatures OK. Failsafe cleared and previous preset restored.",
+			];
+		}
+
+		return [
+			'triggered' => false,
+			'enabled' => true,
+			'restored' => false,
+			'settings' => $settings,
+			'hot_sensors' => [],
+			'message' => "Temperatures below failsafe threshold but waiting for clear threshold before restoring preset.",
 		];
 	}
 
@@ -598,7 +703,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 					do
 						$FANS = get_fans();
 					while ($FANS !== array_merge($FANS, $data['fans']));  // Wait until the fans are updated
+				
+				$matched_preset = detect_preset_name_from_fans($data['fans']);
 
+				if ($matched_preset !== null) {
+					save_runtime_state([
+						'last_preset_name' => $matched_preset,
+					]);
+				}
 				die(json_encode($FANS, JSON_PRETTY_PRINT));
 
 			} else if ($data['action'] === 'presets' && isset($data['presets'])) {  // Save presets to presets.json
@@ -1049,7 +1161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 					<div class="space-y-6 w-full mt-5">
 						<template x-for="(speed, name) in $store.fans.fans" :key="name">
-							<div class="flex flex-col sm:flex-row sm:items-center justify-between group sm:space-y-0 space-y-3" x-init="$watch('speed', (newSpeed) => $store.fans.setSpeed(name, newSpeed))">
+							<div class="flex flex-col sm:flex-row sm:items-center justify-between group sm:space-y-0 space-y-3">
 								<div class="w-full flex items-center space-x-3 transform-opacity duration-75">
 									<p
 										class="dark:text-gray-200 text-gray-650 group-hover:text-black dark:group-hover:text-white
@@ -1070,7 +1182,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 												enabled:[&::-webkit-slider-thumb]:peer-hover:bg-emerald-600 dark:enabled:[&::-webkit-slider-thumb]:peer-hover:bg-emerald-400
 													enabled:peer-hover:border-gray-175 dark:enabled:peer-hover:border-gray-825 h-5 sm:h-3.5 !rounded-full disabled:cursor-default"
 										:disabled="$store.app.isLoading"
-										x-model="speed"
+										x-model.number="$store.fans.fans[name]"
+										@input="$store.fans.setSpeed(name, $store.fans.fans[name])"
 										@pointerdown="$store.fans.startEditing()"
 										@pointerup="$store.fans.stopEditingSoon()"
 										@touchstart="$store.fans.startEditing()"
@@ -1089,16 +1202,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 										class="w-16 sm:ml-3 max-w-max px-1.5 py-0.5 font-mono text-gray-800"
 										:placeholder="originalSpeed"
 										:disabled="$store.app.isLoading"
-										x-model="speed"
+										x-model.number="$store.fans.fans[name]"
+										@input="$store.fans.startEditing(); $store.fans.setSpeed(name, $store.fans.fans[name])"
 										@focus="$store.fans.startEditing()"
 										@blur="$store.fans.stopEditingSoon()"
-										@input="$store.fans.startEditing()"
 									>
 
 									<button
 										class="outline-button mx-3 sm:mr-0 px-1 text-sm"
 										type="button"
-										@click="speed = originalSpeed" :disabled="speed == originalSpeed || $store.app.isLoading"
+										@click="$store.fans.fans[name] = originalSpeed; $store.fans.setSpeed(name, originalSpeed)"
+										:disabled="$store.fans.fans[name] == originalSpeed || $store.app.isLoading"
 									>Reset</button>
 
 									<div class="sm:hidden h-px w-full bg-gray-100 dark:bg-gray-900"></div>
@@ -1154,7 +1268,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 						</label>
 					</div>
 
-					<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+					<div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-4">
 						<label class="flex flex-col text-sm dark:text-gray-300 text-gray-600">
 							<span class="mb-1">Threshold °C</span>
 							<input
@@ -1163,6 +1277,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 								max="120"
 								class="px-2 py-1 font-mono"
 								x-model.number="$store.failsafeSettings.settings.threshold_c"
+							>
+						</label>
+
+						<label class="flex flex-col text-sm dark:text-gray-300 text-gray-600">
+							<span class="mb-1">Recovery margin °C</span>
+							<input
+								type="number"
+								min="1"
+								max="30"
+								class="px-2 py-1 font-mono"
+								x-model.number="$store.failsafeSettings.settings.recovery_margin_c"
 							>
 						</label>
 
@@ -1458,12 +1583,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 						const speed = parseInt(rawSpeed);
 
-						if (speed >= <?php echo $MINIMUM_FAN_SPEED; ?> && speed <= 100)
-							if (Alpine.store('app').editAll)
-								for (const fan in this.fans)
-									this.fans[fan] = speed;
-							else
+						if (speed >= <?php echo $MINIMUM_FAN_SPEED; ?> && speed <= 100) {
+							if (Alpine.store('app').editAll) {
+								for (const fanName in this.fans)
+									this.fans[fanName] = speed;
+							} else {
 								this.fans[fan] = speed;
+							}
+						}
 
 						Alpine.store('presets').detectPreset();
 					}

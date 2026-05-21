@@ -36,13 +36,18 @@
     ],
     "failsafe": {
         "enabled": true,
-        "threshold_c": 80,
-        "fan_speed": 70,
+        "threshold_c": 70,
+        "recovery_margin_c": 5,
+        "fan_speed": 65,
         "interval_seconds": 30
     },
     "startup": {
         "enabled": true,
         "preset_name": "Home_Quiet",
         "delay_seconds": 60
+    },
+    "runtime": {
+        "last_preset_name": "Home_Quiet",
+        "failsafe_active": false
     }
 }

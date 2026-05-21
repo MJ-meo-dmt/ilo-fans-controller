@@ -13,6 +13,18 @@
 > ℹ **NOTE:** The v1.0.0 is a **complete rewrite** of the tool, so any feedback is appreciated!<br>
 > If you find any bug or have any suggestion, please [open an issue](https://github.com/alex3025/ilo-fans-controller/issues). Thanks! 😄
 
+## Extended Version
+
+An extended version by [MJ-meo-dmt](https://github.com/MJ-meo-dmt) with temperature display, top hottest sensors, fan refresh, startup preset support, and a systemd thermal failsafe watchdog is available here:
+
+[README_EXTENDED.md](README_EXTENDED.md)
+
+<p align="center">
+  <img width="800" src="screenshot_extended.png" alt="Extended Version Screenshot">
+  <br>
+  <i>Extended dashboard with temperatures, fan controls, failsafe settings, and startup preset support.</i>
+</p>
+
 ## FAQ
 
 ### How does it work? 🛠

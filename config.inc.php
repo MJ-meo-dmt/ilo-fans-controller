@@ -18,6 +18,16 @@ $ILO_PASSWORD = 'your-ilo-password';  // Ex. AdministratorPassword1234
   the behavior of the tool.
 */
 
+/*
+OPTIONAL DASHBOARD iLO LINKS
+--------------
+Direct link opens https://$ILO_HOST.
+Tunnel link is useful if iLO is reachable only through SSH local port forwarding.
+*/
+$ILO_DIRECT_URL = "https://$ILO_HOST";
+$ILO_TUNNEL_URL = "https://localhost:8443/"; // If you do ssh -L
+$SHOW_ILO_TUNNEL_LINK = true;
+
 // Minimum fan speed percentage, from 0% (DANGEROUS) to 100%
 $MINIMUM_FAN_SPEED = 10;
 

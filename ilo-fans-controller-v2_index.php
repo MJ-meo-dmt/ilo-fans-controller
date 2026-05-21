@@ -926,14 +926,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 					<h1 class="font-bold text-2xl sm:text-3xl dark:text-white text-black select-none">
 						iLO Fans Controller
 					</h1>
-					<div class="flex items-center justify-between">
+
+					<div class="flex items-center justify-between gap-3">
 						<p class="text-sm font-normal self-end pb-0.5 italic dark:text-gray-250 text-gray-450 select-none">
-							by <a href="https://github.com/sponsors/alex3025" target="_blank" class="font-medium dark:hover:text-gray-150 hover:text-gray-575 select-text transition-colors duration-75">alex3025</a>
+							Extended by
+							<a
+								href="https://github.com/MJ-meo-dmt/ilo-fans-controller"
+								target="_blank"
+								class="font-semibold dark:text-orange-300 dark:hover:text-orange-200 text-orange-600 hover:text-orange-700 select-text transition-colors duration-75"
+							>
+								MJ-meo-dmt
+							</a>
+							<span class="dark:text-gray-650 text-gray-350"> · forked from </span>
+							<a
+								href="https://github.com/alex3025/ilo-fans-controller"
+								target="_blank"
+								class="font-semibold dark:text-sky-300 dark:hover:text-sky-200 text-sky-600 hover:text-sky-700 select-text transition-colors duration-75"
+							>
+								alex3025
+							</a>
 						</p>
 
 						<!-- Version -->
 						<a
-							href="https://github.com/alex3025/ilo-fans-controller"
+							href="https://github.com/MJ-meo-dmt/ilo-fans-controller"
+							target="_blank"
 							class="text-xs select-none font-mono px-2 py-0.5 rounded-full transition-colors duration-75 dark:bg-gray-925 dark:hover:bg-gray-900
 									dark:focus:bg-gray-900 dark:text-gray-750 dark:hover:text-gray-650 dark:focus:text-gray-650 bg-gray-25 hover:bg-gray-50
 									focus:bg-gray-50 text-gray-450 hover:text-gray-600 focus:text-gray-600"

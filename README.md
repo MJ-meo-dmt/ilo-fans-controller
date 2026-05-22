@@ -1,346 +1,773 @@
-<h1 align="center">iLO Fans Controller</h1>
+<h1 align="center">iLO Fans Controller Extended</h1>
 
 <p align="center">
-  <img width="800" src="screenshot.png" alt="Webpage Screenshot">
-  <br>
-  <i>Easily manage your HP's server fans speeds, anywhere!</i>
+  Maintained by <a href="https://github.com/MJ-meo-dmt"><strong>MJ-meo-dmt</strong></a>
 </p>
 
----
-
-<h3 align="center"> 🎉 Thank you so much for the <code>10.000+</code> container pulls! 🎉 </h3>
-
-> ℹ **NOTE:** The v1.0.0 is a **complete rewrite** of the tool, so any feedback is appreciated!<br>
-> If you find any bug or have any suggestion, please [open an issue](https://github.com/alex3025/ilo-fans-controller/issues). Thanks! 😄
-
-## Extended Version
-
-An extended version by [MJ-meo-dmt](https://github.com/MJ-meo-dmt) with temperature display, top hottest sensors, fan refresh, startup preset support, and a systemd thermal failsafe watchdog is available here:
-
-[README_EXTENDED.md](README_EXTENDED.md)
+> 🍴 This is a fork of [alex3025/ilo-fans-controller](https://github.com/alex3025/ilo-fans-controller) with significant enhancements for automatic fan control, temperature monitoring, startup presets, and thermal failsafe automation.
+>
+> The original project provides the lightweight PHP-based iLO fan controller foundation. This fork expands on it with live Redfish temperature readings, a compact dashboard, top hottest sensor summary, fan auto-refresh, optional iLO direct/tunnel links, CLI support, and optional systemd services.
 
 <p align="center">
-  <img width="800" src="screenshot_extended.png" alt="Extended Version Screenshot">
+  <img width="800" src="screenshot_extended.png" alt="iLO Fans Controller Extended dashboard screenshot">
   <br>
   <i>Extended dashboard with temperatures, fan controls, failsafe settings, and startup preset support.</i>
 </p>
 
-## FAQ
+---
 
-### How does it work? 🛠
+## Index
 
-This tool is a **single PHP script** that uses the `php-curl` extension to **get the current server fan speeds from the iLO REST api** and the `php-ssh2` extension to **set the fan speeds using the [patched iLO SSH interface](#can-i-use-this-tool-with-my-hp-server-%EF%B8%8F).** You can also **create custom presets** to set a specific fan configuration with a single click, all with a **simple and clean web interface** made by using [Alpine.js](https://alpinejs.dev/) and [TailwindCSS](https://tailwindcss.com/).
+- [Features in this fork](#features-in-this-fork)
+- [1. Configure iLO access](#1-configure-ilo-access)
+- [2. Install files](#2-install-files)
+- [3. File permissions](#3-file-permissions)
+- [4. `presets.json` structure](#4-presetsjson-structure)
+- [5. API endpoints](#5-api-endpoints)
+  - [Fans](#fans)
+  - [Presets](#presets)
+  - [Temperatures](#temperatures)
+  - [Failsafe settings](#failsafe-settings)
+  - [Failsafe check](#failsafe-check)
+  - [Startup settings](#startup-settings)
+- [6. CLI commands](#6-cli-commands)
+  - [`failsafe-settings`](#failsafe-settings-1)
+  - [`failsafe-check`](#failsafe-check-1)
+  - [`startup-settings`](#startup-settings-1)
+  - [`apply-startup-preset`](#apply-startup-preset)
+- [7. Thermal failsafe service](#7-thermal-failsafe-service)
+  - [Create watchdog script](#create-watchdog-script)
+  - [Create systemd service](#create-systemd-service)
+- [8. Startup preset service](#8-startup-preset-service)
+  - [Create log file](#create-log-file)
+  - [Create systemd service](#create-systemd-service-1)
+- [9. Testing the services](#9-testing-the-services)
+  - [Test failsafe settings](#test-failsafe-settings)
+  - [Test failsafe check](#test-failsafe-check)
+  - [Test startup preset](#test-startup-preset)
+- [10. Optional UFW example](#10-optional-ufw-example)
+- [11. Security notes](#11-security-notes)
+- [12. Notes on iLO tunnel link](#12-notes-on-ilo-tunnel-link)
 
-### Can I use this tool with my HP server? 🖥️
+## Features in this fork
 
-This tool requires a **patched iLO firmware** that expose to the iLO SSH interface some commands to manipulate the fans speeds. You can find more information about this patch on [this Reddit post](https://www.reddit.com/r/homelab/comments/sx3ldo/hp_ilo4_v277_unlocked_access_to_fan_controls/).
-
-As of now, the patch (and so this tool) only works for **Gen8 & Gen9 servers with iLO 4.**
-
-> 🚫 Gen10/11/12 servers with iLO 5/6/7 are not supported (and probably never will).
-
-### Why PHP? 📄
-
-In my opinion, PHP is perfect for this type of tasks where you need to do some simple server-side stuff and something easy to deploy (you just need a web server with PHP installed).
-
-### Why did you make this? 🤔
-
-See my [original comment on r/homelab](https://www.reddit.com/r/homelab/comments/rcel73/comment/hnu3iyp/?utm_source=share&utm_medium=web2x&context=3) to know the story behind this tool!
-
-### Do you like this project? Offer me a slice of pizza! 🍕
-
-If you found this tool useful, consider offering me a slice of (or entire) pizza using [PayPal](https://paypal.me/alex3025) or [GitHub Sponsors](https://github.com/sponsors/alex3025) to support my work! Thank you so much! 🙏
+- Live iLO temperature readings from Redfish
+- Compact temperature table
+- Top 10 hottest sensor summary
+- Fan speed auto-refresh
+- Slider edit protection so refresh does not overwrite changes while editing
+- Optional direct iLO link and SSH tunnel iLO link
+- Structured `presets.json` file
+- Thermal failsafe settings
+- Thermal failsafe recovery margin setting
+- Automatic restore of the last applied preset after failsafe clears
+- Startup preset settings
+- CLI commands for automation
+- Optional `systemd` services:
+  - Thermal failsafe watchdog
+  - Startup preset apply-on-boot
 
 ---
 
-## Getting started with Docker / Docker Compose
+## 1. Configure iLO access
 
-If you already have a Docker environment, you can be up and running in minutes using the following command (obviously you need to change the value):
+Open the `config.inc.php` file in your favourite text editor and change the variables according to your configuration.
+
+> ℹ **NOTE:** `$ILO_HOST` is the IP address of your iLO interface, not the server itself.
+
+> ℹ **NOTE:** It is recommended to create a dedicated iLO user with the minimum privileges required to access SSH and the Redfish/REST API.
+
+Example:
+
+```php
+/*
+ILO ACCESS CREDENTIALS
+--------------
+These are used to connect to the iLO
+interface and manage the fan speeds.
+*/
+
+$ILO_HOST = '192.168.1.69';
+$ILO_USERNAME = 'Administrator';
+$ILO_PASSWORD = 'AdministratorPassword1234';
+
+/*
+OPTIONAL DASHBOARD iLO LINKS
+--------------
+Direct link opens https://$ILO_HOST.
+Tunnel link is useful if iLO is reachable only through SSH local port forwarding.
+*/
+
+$ILO_DIRECT_URL = "https://$ILO_HOST";
+$ILO_TUNNEL_URL = "https://localhost:8443/";
+$SHOW_ILO_TUNNEL_LINK = true;
+```
+
+## 2. Install files
+
+Create a new subdirectory in your web server root directory, usually `/var/www/html/`, and copy the required files:
 
 ```sh
-docker run -d --name ilo-fans-controller --restart always \
-    -p 8000:80 \
-    -e ILO_HOST='your-ilo-address' \
-    -e ILO_USERNAME='your-ilo-username' \
-    -e ILO_PASSWORD='your-ilo-password' \
-    ghcr.io/alex3025/ilo-fans-controller:latest
+sudo mkdir -p /var/www/html/ilo-fans-controller
+sudo cp config.inc.php ilo-fan-controller-extended.php example_presets.json ilo_page_link_direct.png ilo_page_link_ssh.png /var/www/html/ilo-fans-controller/
 ```
 
-Or if you prefer, you can use `docker compose`, as the [docker-compose.yaml](https://github.com/alex3025/ilo-fans-controller/blob/main/docker-compose.yaml) file is provided as well.
+Rename the extended PHP file to `index.php`:
 
-**Check [`config.inc.php`](https://github.com/alex3025/ilo-fans-controller/blob/main/config.inc.php) for all the available environment variables!**
-
----
-
-> ⚠ **IMPORTANT!** ⚠
->
-> Again, this tool works thanks to a **[patched iLO firmware](#can-i-use-this-tool-with-my-hp-server-%EF%B8%8F)** that expose to the iLO SSH interface some commands to manipulate the fans speeds.
->
-> **This patch is required to use this tool!**
-
-## Manual installation
-
-### The following guide was run on
-
-* An **HP ProLiant DL380e Gen8** server
-* **Patched iLO 4** Advanced **v2.77** (07 December 2020)
-* A Proxmox container (LXC) running **Ubuntu 22.04**
-* **Apache 2** & **PHP 8.1**
-
-### Preparing the environment
-
-1. Update the system:
-
-    ```sh
-    sudo apt-get update && sudo apt-get upgrade
-    ```
-
-2. Install the required packages (`apache2`, `php`, `php-curl` and `php-ssh2`):
-
-    ```sh
-    sudo apt-get install apache2 php php-curl php-ssh2
-    ```
-
-### Downloading the tool
-
-1. Download and extract the latest source code using `wget` and `tar`:
-
-    ```sh
-    wget -qL https://github.com/alex3025/ilo-fans-controller/archive/refs/heads/main.tar.gz -O - | tar -xz
-    ```
-
-2. Enter the directory:
-
-    ```sh
-    cd ilo-fans-controller-main
-    ```
-
-### Configuring and installing the tool
-
-1. Open the `config.inc.php` file you favourite text editor and change the variables according to your configuration.
-
-    > ℹ **NOTE:** Remember that `$ILO_HOST` is the IP address of your iLO interface, not of the server itself.
-
-    > ℹ **NOTE:** It's recommended to create a new iLO user with the minimum privileges required to access the SSH interface and the REST api (Remote Console Access).
-
-    Here is an example:
-
-    ```php
-    /*
-    ILO ACCESS CREDENTIALS
-    --------------
-    These are used to connect to the iLO
-    interface and manage the fan speeds.
-    */
-
-    $ILO_HOST = '192.168.1.69';
-    $ILO_USERNAME = 'Administrator';
-    $ILO_PASSWORD = 'AdministratorPassword1234';
-    ```
-
-2. When you're done, create a new subdirectory in your web server root directory (usually `/var/www/html/`) and copy the `config.inc.php`, `ilo-fans-controller.php` and `favicon.ico` to it:
-
-    ```sh
-    sudo mkdir /var/www/html/ilo-fans-controller
-    sudo cp config.inc.php ilo-fans-controller.php favicon.ico /var/www/html/ilo-fans-controller/
-    ```
-
-    Then rename `ilo-fans-controller.php` to `index.php` (to make it work without specifying the filename in the URL):
-
-    ```sh
-    sudo mv /var/www/html/ilo-fans-controller/ilo-fans-controller.php /var/www/html/ilo-fans-controller/index.php
-    ```
-
-3. That's it! Now you can reach the tool at `http://<your-server-ip>/ilo-fans-controller/` (or `http://<your-server-ip>/ilo-fans-controller/index.php` for API requests).
-
-> ℹ **NOTE:** If the web server where you installed this tool **will be reachable from outside your network**, remember to **setup some sort of authentication** (like Basic Auth) to prevent _unauthorized fan management at 2AM_.
-
----
-
-## Troubleshooting
-
-The first thing to do when you encounter a problem is to **check the logs**.
-
-> If you are using Apache, PHP errors are logged in the `/var/log/apache2/error.log` file.
-
-If you think you found a bug, please [open an issue](https://github.com/alex3025/ilo-fans-controller/issues) and I'll take a look.
-
-Below you can find some common problems and their solutions.
-
-### The presets are not saved
-
-If you see the following error in the logs when you create a new preset:
-
-```log
-PHP Warning:  file_put_contents(presets.json): Failed to open stream: Permission denied in .../index.php on line X
-```
-
-This is probably because the `presets.json` file is not writable by the web server user.<br>
-To fix this, run the following command to change the file owner to `www-data` (the default Apache user):
+Rename the example presets.json file to `presets.json`:
 
 ```sh
-sudo chown www-data:www-data /var/www/html/ilo-fans-controller/presets.json
+sudo mv /var/www/html/ilo-fans-controller/ilo-fan-controller-extended.php /var/www/html/ilo-fans-controller/index.php
+
+sudo mv /var/www/html/ilo-fans-controller/example_presets.json /var/www/html/ilo-fans-controller/presets.json
+```
+
+Now open:
+
+```text
+http://<your-server-ip>/ilo-fans-controller/
+```
+
+or directly:
+
+```text
+http://<your-server-ip>/ilo-fans-controller/index.php
 ```
 
 ---
 
-## API Documentation
+## 3. File permissions
 
-The tool exposes a simple API that can be used to:
+The web server user needs to read `config.inc.php` and write `presets.json`.
 
-* Get current fan speeds from iLO
-* Set the fan speeds
-* Get all presets
-* Create a preset 
+Recommended permissions:
 
-> The following examples use cURL to show how to use the API, but you can use any other tool you want.
+```sh
+cd /var/www/html/ilo-fans-controller
 
-### Fan APIs
+sudo chown root:www-data config.inc.php
+sudo chmod 640 config.inc.php
 
-To use the following APIs you need to add `?api=fans` at the end of the URL.
+sudo chown root:root index.php ilo_page_link_direct.png ilo_page_link_ssh.png 
+sudo chmod 644 index.php ilo_page_link_direct.png ilo_page_link_ssh.png 
 
-#### Get fan speeds (`GET`)
+sudo chown www-data:www-data presets.json
+sudo chmod 660 presets.json
+```
 
-<details>
-<summary>JSON structure (response)</summary>
+Expected result:
 
-```jsonc
+```text
+-rw-r----- root     www-data   config.inc.php
+-rw-r--r-- root     root       ilo_page_link_direct.png
+-rw-r--r-- root     root       ilo_page_link_ssh.png
+-rw-r--r-- root     root       index.php
+-rw-rw---- www-data www-data   presets.json
+```
+
+---
+
+## 4. `presets.json` structure
+
+This extended version stores presets, failsafe settings, and startup settings in `presets.json`.
+
+Example:
+
+```json
 {
-    "Fan 1": 85,
-    "Fan 2": 48,
-    "Fan 3": 69,
-    "Fan 4": 18,
-    "Fan 5": 44,
-    "Fan 6": 96
-}
-```
-
-</details>
-
-<details>
-<summary>cURL example</summary>
-
-```sh
-curl 'http://<server ip>/ilo-fans-controller/index.php?api=fans'
-```
-
-</details>
-
-#### Set the fan speeds (`POST`)
-
-<details>
-<summary>JSON structure example</summary>
-
-```jsonc
-{
-    "action": "fans",
-    // You can use either an object or a single number value (that will be applied to all fans):
-    // Example: `fans: { ... }` or `fans: 50`
-    "fans": {
-        "Fan 1": 40,
-        "Fan 2": 23,
-        "Fan 5": 70
-        // ...
+  "presets": [
+    {
+      "name": "Home_Quiet",
+      "speeds": [20]
+    },
+    {
+      "name": "Home_Medium",
+      "speeds": [40]
+    },
+    {
+      "name": "Home_High",
+      "speeds": [65]
     }
+  ],
+  "failsafe": {
+    "enabled": true,
+    "threshold_c": 80,
+    "recovery_margin_c": 10,
+    "fan_speed": 70,
+    "interval_seconds": 30
+  },
+  "startup": {
+    "enabled": true,
+    "preset_name": "Home_Quiet",
+    "delay_seconds": 60
+  },
+  "runtime": {
+    "last_preset_name": "Home_Quiet",
+    "failsafe_active": false
+  }
 }
 ```
 
-</details>
+The `recovery_margin_c` value controls when failsafe mode clears. *`very basic`*
 
-<details>
-<summary>cURL example</summary>
+Example: `80°C - 10°C = 70°C [at 70°C reset to previous preset]`
+
+```json
+"threshold_c": 80
+"recovery_margin_c": 10
+```
+
+Single-speed presets like:
+
+```json
+"speeds": [20]
+```
+
+apply the same speed to all fans.
+
+Multi-speed presets are also supported:
+
+```json
+"speeds": [20, 20, 20, 20, 20, 20]
+```
+
+---
+
+## 5. API endpoints
+
+The dashboard exposes several simple API endpoints.
+
+### Fans
+
+```text
+GET ?api=fans
+```
+
+Example:
 
 ```sh
-curl -X POST 'http://<server ip>/ilo-fans-controller/index.php' \
-    -H 'Content-Type: application/json' \
-    -d '{"action": "fans", "fans": 50}'
+curl http://<server-ip>/ilo-fans-controller/index.php?api=fans
 ```
 
-This command will set all fans to 50%.<br>
-_I personally use this command to slow down the fans automatically when my server boots._
-</details>
+Returns current fan readings.
 
-### Preset APIs
+---
 
-To use the following APIs you need to add `?api=preset` at the end of the URL.
+### Presets
 
-#### Get all presets (`GET`)
-
-<details>
-<summary>JSON structure (response)</summary>
-
-```jsonc
-[
-    {
-        "name": "Silent Mode",
-        "speeds": [15]  // Like when setting the speeds, this number applies to all fans.
-    },
-    {
-        "name": "Normal Mode",
-        "speeds": [50]
-    },
-    {
-        "name": "Turbo Mode",
-        "speeds": [100]
-    },
-    {
-        "name": "My Custom Preset",
-        "speeds": [10, 10, 25, 30, 10, 15]  // Here you can see the different speeds for each fan.
-    }
-]
+```text
+GET ?api=presets
 ```
 
-</details>
-
-<details>
-<summary>cURL example</summary>
+Example:
 
 ```sh
-curl 'http://<server ip>/ilo-fans-controller/index.php?api=presets'
+curl http://<server-ip>/ilo-fans-controller/index.php?api=presets
 ```
 
-</details>
+Returns saved fan presets.
 
-#### Create a preset (`POST`)
+---
 
-<details>
-<summary>JSON structure example</summary>
+### Temperatures
 
-```jsonc
+```text
+GET ?api=temperatures
+```
+
+Example:
+
+```sh
+curl http://<server-ip>/ilo-fans-controller/index.php?api=temperatures
+```
+
+Returns current iLO temperature sensors from Redfish.
+
+---
+
+### Failsafe settings
+
+```text
+GET ?api=failsafe-settings
+```
+
+Example:
+
+```sh
+curl http://<server-ip>/ilo-fans-controller/index.php?api=failsafe-settings
+```
+
+Returns:
+
+```json
 {
-    "action": "presets",
-    // WARNING: The API will replace all the saved presets with the new data!
-    // To add a preset you should get all the presets first and then add the new one to the existing array.
-    "presets": [
-        {
-            "name": "Silent Mode",
-            "speeds": [15]
-        },
-        {
-            "name": "Normal Mode",
-            "speeds": [50]
-        },
-        {
-            "name": "Turbo Mode",
-            "speeds": [100]
-        },
-        {
-            "name": "My Custom Preset",
-            "speeds": [10, 10, 25, 30, 10, 15]
-        }
-    ]
+  "enabled": true,
+  "threshold_c": 80,
+  "recovery_margin_c": 10,
+  "fan_speed": 70,
+  "interval_seconds": 15
 }
 ```
 
-</details>
+---
 
-<details>
-<summary>cURL example</summary>
+### Failsafe check
 
-```sh
-curl -X POST 'http://<server ip>/ilo-fans-controller/index.php' \
-    -H 'Content-Type: application/json' \
-    -d '{"action": "presets", "presets": [{"My Custom Preset 1": [50], "My Custom Preset 2": [10, 20, 30, 30, 20, 10]}]}'
+```text
+GET ?api=failsafe-check
 ```
 
-</details>
+Example:
+
+```sh
+curl http://<server-ip>/ilo-fans-controller/index.php?api=failsafe-check
+```
+
+This checks temperatures immediately. If a valid sensor is at or above the configured threshold, all fans are forced to the configured failsafe fan speed. Once temperatures fall below the recovery threshold, the last applied preset is restored automatically.
+
+---
+
+### Startup settings
+
+```text
+GET ?api=startup-settings
+```
+
+Example:
+
+```sh
+curl http://<server-ip>/ilo-fans-controller/index.php?api=startup-settings
+```
+
+Returns:
+
+```json
+{
+  "enabled": true,
+  "preset_name": "Home_Quiet",
+  "delay_seconds": 60
+}
+```
+
+---
+
+## 6. CLI commands
+
+This version also supports CLI commands, useful for automation and `systemd` services.
+
+Run from the server:
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-settings
+```
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-check
+```
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php startup-settings
+```
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php apply-startup-preset
+```
+
+### `failsafe-settings`
+
+Shows current saved failsafe settings.
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-settings
+```
+
+### `failsafe-check`
+
+Checks current temperatures and triggers failsafe fan speed if needed.
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-check
+```
+
+Normal result:
+
+```json
+{
+  "triggered": false,
+  "enabled": true,
+  "settings": {
+    "enabled": true,
+    "threshold_c": 80,
+    "recovery_margin_c": 10,
+    "fan_speed": 70,
+    "interval_seconds": 15
+  },
+  "hot_sensors": [],
+  "message": "Temperatures OK"
+}
+```
+
+Triggered result:
+
+```json
+{
+  "triggered": true,
+  "enabled": true,
+  "settings": {
+    "enabled": true,
+    "threshold_c": 80,
+    "recovery_margin_c": 10,
+    "fan_speed": 70,
+    "interval_seconds": 15
+  },
+  "fan_update_ok": true,
+  "hot_sensors": {
+    "25-HD Controller": {
+      "value": 82,
+      "status": "OK",
+      "upper_critical": 100
+    }
+  },
+  "message": "Thermal failsafe triggered. Fans forced to emergency speed."
+}
+```
+
+### `startup-settings`
+
+Shows current startup preset settings.
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php startup-settings
+```
+
+### `apply-startup-preset`
+
+Applies the configured startup preset after the configured delay.
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php apply-startup-preset
+```
+
+Example result:
+
+```json
+{
+  "ok": true,
+  "preset": "Home_Quiet",
+  "mode": "single-speed",
+  "speed": 20,
+  "message": "Startup preset 'Home_Quiet' applied.",
+  "settings": {
+    "enabled": true,
+    "preset_name": "Home_Quiet",
+    "delay_seconds": 60
+  }
+}
+```
+
+---
+
+## 7. Thermal failsafe service
+
+The failsafe service runs independently of the browser.
+
+It repeatedly runs:
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-check
+```
+
+using the interval configured in `presets.json`.
+
+### Create watchdog script
+
+Create:
+
+```sh
+sudo nano /usr/local/bin/ilo-failsafe-watchdog.sh
+```
+
+Add:
+
+```sh
+#!/bin/bash
+
+APP="/var/www/html/ilo-fans-controller/index.php"
+LOG="/var/log/ilo-failsafe.log"
+
+while true; do
+    SETTINGS_JSON="$(/usr/bin/php "$APP" failsafe-settings 2>/dev/null)"
+    INTERVAL="$(echo "$SETTINGS_JSON" | /usr/bin/php -r '$j=json_decode(stream_get_contents(STDIN), true); echo intval($j["interval_seconds"] ?? 10);')"
+
+    if [ -z "$INTERVAL" ] || [ "$INTERVAL" -lt 5 ]; then
+        INTERVAL=10
+    fi
+
+    if [ "$INTERVAL" -gt 60 ]; then
+        INTERVAL=60
+    fi
+
+    /usr/bin/php "$APP" failsafe-check >> "$LOG" 2>&1
+
+    sleep "$INTERVAL"
+done
+```
+
+Make it executable:
+
+```sh
+sudo chmod +x /usr/local/bin/ilo-failsafe-watchdog.sh
+```
+
+Create the log file:
+
+```sh
+sudo touch /var/log/ilo-failsafe.log
+sudo chown www-data:www-data /var/log/ilo-failsafe.log
+sudo chmod 664 /var/log/ilo-failsafe.log
+```
+
+### Create systemd service
+
+Create:
+
+```sh
+sudo nano /etc/systemd/system/ilo-failsafe-watchdog.service
+```
+
+Add:
+
+```ini
+[Unit]
+Description=iLO Fan Thermal Failsafe Watchdog
+After=network-online.target apache2.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ilo-failsafe-watchdog.sh
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now ilo-failsafe-watchdog.service
+```
+
+Check status:
+
+```sh
+sudo systemctl status ilo-failsafe-watchdog.service
+```
+
+View logs:
+
+```sh
+sudo tail -f /var/log/ilo-failsafe.log
+```
+
+---
+
+## 8. Startup preset service
+
+The startup preset service applies the configured startup preset automatically after boot.
+
+This is useful for home/lab servers that boot loudly before a quiet fan preset is manually applied.
+
+### Create log file
+
+```sh
+sudo touch /var/log/ilo-startup-preset.log
+sudo chown www-data:www-data /var/log/ilo-startup-preset.log
+sudo chmod 664 /var/log/ilo-startup-preset.log
+```
+
+### Create systemd service
+
+Create:
+
+```sh
+sudo nano /etc/systemd/system/ilo-startup-preset.service
+```
+
+Add:
+
+```ini
+[Unit]
+Description=Apply iLO Fan Startup Preset
+After=network-online.target apache2.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/php /var/www/html/ilo-fans-controller/index.php apply-startup-preset
+User=www-data
+Group=www-data
+StandardOutput=append:/var/log/ilo-startup-preset.log
+StandardError=append:/var/log/ilo-startup-preset.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable it:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable ilo-startup-preset.service
+```
+
+Test manually:
+
+```sh
+sudo systemctl start ilo-startup-preset.service
+sudo systemctl status ilo-startup-preset.service
+sudo tail -n 50 /var/log/ilo-startup-preset.log
+```
+
+> ℹ **NOTE:** The service may remain in `activating` state while waiting for the configured `delay_seconds`.
+
+Example successful log:
+
+```json
+{
+  "ok": true,
+  "preset": "Home_Quiet",
+  "mode": "single-speed",
+  "speed": 20,
+  "message": "Startup preset 'Home_Quiet' applied.",
+  "settings": {
+    "enabled": true,
+    "preset_name": "Home_Quiet",
+    "delay_seconds": 60
+  }
+}
+```
+
+---
+
+## 9. Testing the services
+
+### Test failsafe settings
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-settings
+```
+
+### Test failsafe check
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-check
+```
+
+To test that failsafe actually triggers, temporarily lower the threshold in the dashboard to a value below one of your current sensor readings, save it, then run:
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php failsafe-check
+```
+
+After the test, restore the threshold to a safe value.
+
+### Test startup preset
+
+```sh
+php /var/www/html/ilo-fans-controller/index.php apply-startup-preset
+```
+
+Or via systemd:
+
+```sh
+sudo systemctl start ilo-startup-preset.service
+sudo tail -n 50 /var/log/ilo-startup-preset.log
+```
+
+---
+
+## 10. Optional UFW example
+
+If the dashboard should only be accessible from the local LAN:
+
+```sh
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+sudo ufw allow from 192.168.8.0/24 to any port 22 proto tcp comment 'SSH from LAN'
+sudo ufw allow from 192.168.8.0/24 to any port 80 proto tcp comment 'Apache from LAN'
+
+sudo ufw enable
+sudo ufw status verbose
+```
+
+---
+
+## 11. Security notes
+
+> ⚠ **Important:** This dashboard can control server fans. Do not expose it directly to the public internet.
+
+Recommended:
+
+* Restrict access with firewall rules
+* Use LAN-only access where possible
+* Add HTTP Basic Auth if accessible by other users
+* Keep `config.inc.php` readable only by `root` and `www-data`
+* Keep `presets.json` writable only by `www-data`
+* Use a dedicated iLO user with limited required permissions
+
+Example permissions:
+
+```sh
+cd /var/www/html/ilo-fans-controller
+
+sudo chown root:www-data config.inc.php
+sudo chmod 640 config.inc.php
+
+sudo chown www-data:www-data presets.json
+sudo chmod 660 presets.json
+```
+
+---
+
+## 12. Notes on iLO tunnel link
+
+If your iLO interface is connected directly to a second NIC or is not reachable from your workstation, use SSH local port forwarding.
+
+Example:
+
+```sh
+ssh -L 8443:10.10.10.2:443 user@server-ip
+```
+
+Then open:
+
+```text
+https://localhost:8443/
+```
+
+The dashboard can show both:
+
+* Direct iLO link
+* SSH tunnel iLO link
+
+Configure this in `config.inc.php`:
+
+```php
+$ILO_DIRECT_URL = "https://$ILO_HOST";
+$ILO_TUNNEL_URL = "https://localhost:8443/";
+$SHOW_ILO_TUNNEL_LINK = true;
+```
+
+Set:
+
+```php
+$SHOW_ILO_TUNNEL_LINK = false;
+```
+
+to hide the SSH tunnel icon.

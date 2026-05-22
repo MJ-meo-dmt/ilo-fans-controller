@@ -943,7 +943,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 								target="_blank"
 								class="font-semibold dark:text-sky-300 dark:hover:text-sky-200 text-sky-600 hover:text-sky-700 select-text transition-colors duration-75"
 							>
-								alex3025
+								alex3025/ilo-fans-controller 
 							</a>
 						</p>
 
